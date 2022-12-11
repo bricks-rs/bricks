@@ -1,5 +1,5 @@
 use crate::Result;
-// use futures::stream::StreamExt;
+use futures::stream::StreamExt;
 use lego_powered_up::PoweredUp;
 
 pub async fn run() -> Result<()> {
@@ -8,9 +8,12 @@ pub async fn run() -> Result<()> {
 
     let mut pu = PoweredUp::init().await?;
 
-    let hub = pu.wait_for_hub().await?;
+    let events = pu.scan().await?;
+    tokio::pin!(events);
 
-    println!("Discovered hub: {hub:?}");
+    while let Some(hub) = events.next().await {
+        println!("Discovered hubs: {hub:?}");
+    }
 
     Ok(())
 }

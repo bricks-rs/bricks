@@ -596,8 +596,6 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 [[package]]
 name = "lego-powered-up"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdc21d21001a450bb831d3651f98d8aaa67673bfdc1d3d10bc94bf50a1350217"
 dependencies = [
  "async-trait",
  "btleplug",
