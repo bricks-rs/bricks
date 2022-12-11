@@ -5,6 +5,7 @@ edition = "2021"
 authors = ["David Young <david@thedavidyoung.co.uk>"]
 license = "MPL-2"
 repository = "https://github.com/bricks-rs/bricks"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
