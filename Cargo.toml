@@ -11,6 +11,7 @@ description = "CLI utility for interacting with Lego programmable bricks. Most f
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+lego-powered-up = "0.4"
 clap = { version = "4", features = ["derive", "cargo", "string"] }
 color-eyre = "0.6"
 futures = "0.3"
@@ -18,6 +19,6 @@ lazy_static = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 uuid = "1"
 
-[dependencies.lego-powered-up]
-version = "0.3"
-path = "../lego-powered-up/lego-powered-up"
+# [dependencies.lego-powered-up]
+# version = "0.3"
+# path = "../lego-powered-up/lego-powered-up"
