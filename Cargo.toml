@@ -18,6 +18,7 @@ futures = "0.3"
 lazy_static = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 uuid = "1"
+rcx = "0.1.0"
 
 # [dependencies.lego-powered-up]
 # version = "0.3"

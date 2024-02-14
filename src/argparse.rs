@@ -18,8 +18,11 @@ pub enum BrickType {
     Ev3,
     #[command(about = "[todo]")]
     Nxt,
-    #[command(about = "[todo]")]
-    Rcx,
+    #[command(about = "RCX")]
+    Rcx {
+        #[command(subcommand)]
+        mode: RcxMode,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -30,6 +33,14 @@ pub enum PoweredUpMode {
     Download,
     #[command(about = "Load new firmeware onto brick")]
     Flash,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RcxMode {
+    #[command(about = "Check whether the RCX is reachable")]
+    Ping,
+    #[command(about = "Report ROM and FW versions")]
+    Version,
 }
 
 pub fn parse_args() -> Result<Args> {
