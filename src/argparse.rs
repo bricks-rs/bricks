@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::Result;
 use clap::{command, Parser, Subcommand};
 
@@ -41,6 +43,13 @@ pub enum RcxMode {
     Ping,
     #[command(about = "Report ROM and FW versions")]
     Version,
+    #[command(about = "Download a program to the specified slot")]
+    Program {
+        #[clap(help = "Program slot (0-9)")]
+        slot: u8,
+        #[clap(help = "Program file")]
+        file: PathBuf,
+    },
 }
 
 pub fn parse_args() -> Result<Args> {
