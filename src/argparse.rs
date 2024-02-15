@@ -43,6 +43,11 @@ pub enum RcxMode {
     Ping,
     #[command(about = "Report ROM and FW versions")]
     Version,
+    #[command(about = "Compile an NQC program to RCX bytecode")]
+    Compile {
+        #[clap(help = "Source file")]
+        file: PathBuf,
+    },
     #[command(about = "Download a program to the specified slot")]
     Program {
         #[clap(help = "Program slot (0-9)")]

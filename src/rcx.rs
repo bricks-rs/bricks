@@ -1,7 +1,11 @@
 use crate::Result;
 use color_eyre::eyre::eyre;
 use rcx::{tower::usb::UsbTower, Rcx};
-use std::path::PathBuf;
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 const MAX_PROGRAM_SLOT: u8 = 9;
 const DEVICE: &str = "/dev/usb/legousbtower0";
@@ -19,6 +23,30 @@ pub fn version() -> Result<()> {
     let mut rcx = Rcx::new(rcx);
     let versions = rcx.get_versions()?;
     println!("RCX versions: {versions}");
+    Ok(())
+}
+
+pub fn compile(file: PathBuf) -> Result<()> {
+    let target_dir = Path::new("target");
+    let mut file_name = file.file_name().unwrap_or("out".as_ref()).to_owned();
+    file_name.push(".rcx");
+
+    let out_file = target_dir.join(file_name);
+
+    let mut out_arg = OsString::from("-O");
+    out_arg.push(&out_file);
+
+    let output = Command::new("nqc").arg(&out_arg).arg(&file).output()?;
+    if output.status.success() {
+        println!(
+            "Successfully compiled {} to {}",
+            file.display(),
+            out_file.display(),
+        );
+    } else {
+        println!("Error compiling {}", file.display());
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+    }
     Ok(())
 }
 

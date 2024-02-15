@@ -20,6 +20,7 @@ async fn main() -> Result<()> {
         argparse::BrickType::Rcx { mode } => match mode {
             RcxMode::Ping => rcx::ping(),
             RcxMode::Version => rcx::version(),
+            RcxMode::Compile { file } => rcx::compile(file),
             RcxMode::Program { slot, file } => rcx::program(slot, file),
         },
     }

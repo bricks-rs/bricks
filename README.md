@@ -13,6 +13,7 @@ CLI application for managing & flashing Lego programmable bricks
 
 ### RCX
 * Liveness check and FW version reporting
+* NQC compilation (via `nqc` binary)
 * (WIP) program download
 
 ## Roadmap
@@ -20,7 +21,6 @@ The following features are roughly somewhere on the roadmap:
 * RCX: program download
 * RCX: firmware download
 * RCX: program start/stop, send message
-* RCX: program compilation
 * NXT: connectivity check & version reporting
 * NXT: program download
 * NXT: firmware download

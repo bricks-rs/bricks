@@ -1,0 +1,6 @@
+task main() {
+    SetPower(OUT_A, 50);
+    OnFwd(OUT_A);
+    Wait(100);
+    Off(OUT_A);
+}
