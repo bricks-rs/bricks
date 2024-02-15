@@ -7,6 +7,10 @@ use std::{
     process::Command,
 };
 
+mod binfmt;
+
+use binfmt::RcxBin;
+
 const MAX_PROGRAM_SLOT: u8 = 9;
 const DEVICE: &str = "/dev/usb/legousbtower0";
 
@@ -50,9 +54,54 @@ pub fn compile(file: PathBuf) -> Result<()> {
     Ok(())
 }
 
-pub fn program(slot: u8, _file: PathBuf) -> Result<()> {
+pub fn program(slot: u8, file: PathBuf) -> Result<()> {
     if slot > MAX_PROGRAM_SLOT {
         return Err(eyre!("Program slot must be 0-9"));
     }
+
+    let rcx = UsbTower::open(DEVICE)?;
+    let mut rcx = Rcx::new(rcx);
+
+    // Read in the target binary
+    let bin = std::fs::read(&file)?;
+    let bin = RcxBin::parse(&bin)?;
+
+    // Prepare RCX for download
+    rcx.set_program_number(slot)?;
+
+    // Download the program chunks
+    for (idx, chunk) in bin.chunks.iter().enumerate() {
+        println!(
+            "Downloading chunk {} of {} to task {}",
+            idx + 1,
+            bin.chunks.len(),
+            chunk.number
+        );
+        rcx.start_task_download(chunk.number, chunk.data.len().try_into()?)?;
+
+        for (idx, data_chunk) in chunk.data.chunks(256).enumerate() {
+            let mut buf = [0; 256];
+            buf[..data_chunk.len()].copy_from_slice(data_chunk);
+            let checksum = buf
+                .iter()
+                .copied()
+                .reduce(u8::wrapping_add)
+                .unwrap_or_default();
+            let idx = if (idx + 1) * 256 >= chunk.data.len() {
+                // last block
+                0
+            } else {
+                idx as i16 + 1
+            };
+            rcx.transfer_data(
+                idx,
+                data_chunk.len().try_into()?,
+                buf,
+                checksum,
+            )?;
+        }
+    }
+
+    println!("Successfully downloaded {}", file.display());
     todo!()
 }
