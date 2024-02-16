@@ -71,7 +71,7 @@ impl RcxBin {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Chunk {
-    pub ty: u8,
+    pub ty: ChunkType,
     pub number: u8,
     pub length: u16,
     pub data: Vec<u8>,
@@ -81,7 +81,7 @@ fn parse_chunk(i: &[u8]) -> IResult<&[u8], Chunk> {
     let read_u16 = nom::number::complete::u16(Endianness::Little);
     let read_u8 = nom::number::complete::u8;
 
-    let (i, ty) = read_u8(i)?;
+    let (i, ty) = ChunkType::parse(i)?;
     let (i, number) = read_u8(i)?;
     let (i, length) = read_u16(i)?;
     let (i, data) = nom::bytes::complete::take(length)(i)?;
@@ -95,6 +95,36 @@ fn parse_chunk(i: &[u8]) -> IResult<&[u8], Chunk> {
             data: data.to_vec(),
         },
     ))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ChunkType {
+    Task = 0,
+    SubChunk,
+    Sound,
+    Animation,
+    Count,
+}
+
+impl ChunkType {
+    pub fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+        let (i, ty) = nom::number::complete::u8(i)?;
+        let ty = match ty {
+            0 => Self::Task,
+            1 => Self::SubChunk,
+            2 => Self::Sound,
+            3 => Self::Animation,
+            4 => Self::Count,
+            _ => {
+                return Err(nom::Err::Failure(nom::error::Error {
+                    input: i,
+                    code: nom::error::ErrorKind::Verify,
+                }));
+            }
+        };
+        Ok((i, ty))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,7 +213,7 @@ mod test {
                 target_type: 0,
                 reserved: 0,
                 chunks: vec![Chunk {
-                    ty: 0,
+                    ty: ChunkType::Task,
                     number: 0,
                     length: 20,
                     data: vec![

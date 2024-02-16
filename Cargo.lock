@@ -958,7 +958,9 @@ dependencies = [
 
 [[package]]
 name = "rcx"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a908a81f2dc5dfe70da7fc39adb52fc7026354af0f73b1fe54eb358d1a25e3c"
 dependencies = [
  "askama",
  "serde",
