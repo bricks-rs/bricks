@@ -1,6 +1,6 @@
 use crate::Result;
 use color_eyre::eyre::eyre;
-use rcx::{tower::usb::UsbTower, Rcx};
+use rcx::{tower::usb::UsbTower, Rcx, Sound};
 use std::{
     ffi::OsString,
     path::{Path, PathBuf},
@@ -66,42 +66,57 @@ pub fn program(slot: u8, file: PathBuf) -> Result<()> {
     let bin = std::fs::read(&file)?;
     let bin = RcxBin::parse(&bin)?;
 
+    println!("{bin}");
+
+    // Stop any running tasks
+    rcx.stop_all_tasks()?;
+
     // Prepare RCX for download
     rcx.set_program_number(slot)?;
 
-    // Download the program chunks
-    for (idx, chunk) in bin.chunks.iter().enumerate() {
-        println!(
-            "Downloading chunk {} of {} to task {}",
-            idx + 1,
-            bin.chunks.len(),
-            chunk.number
-        );
-        rcx.start_task_download(chunk.number, chunk.data.len().try_into()?)?;
+    // Delete existing tasks and subroutines
+    rcx.delete_all_tasks()?;
+    rcx.delete_all_subroutines()?;
 
-        for (idx, data_chunk) in chunk.data.chunks(256).enumerate() {
-            let mut buf = [0; 256];
-            buf[..data_chunk.len()].copy_from_slice(data_chunk);
-            let checksum = buf
+    // Download the program chunks
+    for (idx, section) in bin.sections.iter().enumerate() {
+        println!(
+            "[prog {}] Downloading section {} of {} to section number {}",
+            slot,
+            idx + 1,
+            bin.sections.len(),
+            section.number,
+        );
+        rcx.start_task_download(
+            section.number,
+            section.data.len().try_into()?,
+        )?;
+
+        for (idx, data_chunk) in section.data.chunks(256).enumerate() {
+            let checksum = data_chunk
                 .iter()
                 .copied()
                 .reduce(u8::wrapping_add)
                 .unwrap_or_default();
-            let idx = if (idx + 1) * 256 >= chunk.data.len() {
+            let idx = if (idx + 1) * 256 >= section.data.len() {
                 // last block
                 0
             } else {
                 idx as i16 + 1
             };
+            println!("Chunk {}, len {}", idx, data_chunk.len());
+            rcx.begin_task_chunk(section.number, data_chunk.len().try_into()?)?;
             rcx.transfer_data(
                 idx,
                 data_chunk.len().try_into()?,
-                buf,
+                data_chunk.to_vec(),
                 checksum,
             )?;
         }
     }
 
     println!("Successfully downloaded {}", file.display());
-    todo!()
+    // Play the download successful sound
+    rcx.play_sound(Sound::FastUpwardTones)?;
+    Ok(())
 }

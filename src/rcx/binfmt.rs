@@ -24,20 +24,24 @@
 use crate::Result;
 use color_eyre::eyre::eyre;
 use nom::{number::Endianness, IResult};
-use std::ffi::CString;
+use std::{
+    ffi::CString,
+    fmt::{self, Debug, Display, Formatter},
+};
 
 const RCX_TAG: &str = "RCXI";
-const MAX_CHUNKS: usize = 10;
+const MAX_SECTIONS: usize = 10;
+const INDENT: &str = "  ";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RcxBin {
     pub signature: [u8; 4],
     pub version: u16,
-    pub chunk_count: u16,
+    pub section_count: u16,
     pub symbol_count: u16,
     pub target_type: u8,
     pub reserved: u8,
-    pub chunks: Vec<Chunk>,
+    pub sections: Vec<Section>,
     pub symbols: Vec<Symbol>,
 }
 
@@ -49,19 +53,19 @@ impl RcxBin {
     }
 
     pub fn verify(&self) -> Result<()> {
-        fn repeated_idx(chunks: &[Chunk]) -> bool {
-            let mut c = chunks.iter().map(|c| c.number).collect::<Vec<_>>();
+        fn repeated_idx(sections: &[Section]) -> bool {
+            let mut c = sections.iter().map(|c| c.number).collect::<Vec<_>>();
             c.sort_unstable();
             c.dedup();
-            c.len() != chunks.len()
+            c.len() != sections.len()
         }
 
         // check chunk count
-        if self.chunk_count as usize != self.chunks.len()
-            || self.chunks.len() > MAX_CHUNKS
+        if self.section_count as usize != self.sections.len()
+            || self.sections.len() > MAX_SECTIONS
         {
             Err(eyre!("Invalid number of chunks"))
-        } else if repeated_idx(&self.chunks) {
+        } else if repeated_idx(&self.sections) {
             Err(eyre!("Nonunique chunk numbers"))
         } else {
             Ok(())
@@ -69,26 +73,51 @@ impl RcxBin {
     }
 }
 
+impl Display for RcxBin {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(
+            fmt,
+            "Signature: {}",
+            String::from_utf8_lossy(&self.signature),
+        )?;
+        writeln!(fmt, "Version: {:x}", self.version)?;
+        writeln!(
+            fmt,
+            "{} sections, {} symbols",
+            self.section_count, self.symbol_count,
+        )?;
+        writeln!(fmt, "Target: {}", self.target_type)?;
+        writeln!(fmt, "Sections:")?;
+        for section in &self.sections {
+            writeln!(fmt, "{section}")?;
+        }
+        writeln!(fmt, "Symbols:")?;
+        for symbol in &self.symbols {
+            writeln!(fmt, "{symbol}")?;
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Chunk {
-    pub ty: ChunkType,
+pub struct Section {
+    pub ty: SectionType,
     pub number: u8,
     pub length: u16,
     pub data: Vec<u8>,
 }
 
-fn parse_chunk(i: &[u8]) -> IResult<&[u8], Chunk> {
+fn parse_chunk(i: &[u8]) -> IResult<&[u8], Section> {
     let read_u16 = nom::number::complete::u16(Endianness::Little);
     let read_u8 = nom::number::complete::u8;
 
-    let (i, ty) = ChunkType::parse(i)?;
+    let (i, ty) = SectionType::parse(i)?;
     let (i, number) = read_u8(i)?;
     let (i, length) = read_u16(i)?;
     let (i, data) = nom::bytes::complete::take(length)(i)?;
 
     Ok((
         i,
-        Chunk {
+        Section {
             ty,
             number,
             length,
@@ -97,9 +126,17 @@ fn parse_chunk(i: &[u8]) -> IResult<&[u8], Chunk> {
     ))
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+impl Display for Section {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        writeln!(fmt, "{INDENT}{} - {} bytes", self.ty, self.length)?;
+        writeln!(fmt, "{INDENT}{INDENT}{}", hex::encode(&self.data))?;
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub enum ChunkType {
+pub enum SectionType {
     Task = 0,
     SubChunk,
     Sound,
@@ -107,7 +144,7 @@ pub enum ChunkType {
     Count,
 }
 
-impl ChunkType {
+impl SectionType {
     pub fn parse(i: &[u8]) -> IResult<&[u8], Self> {
         let (i, ty) = nom::number::complete::u8(i)?;
         let ty = match ty {
@@ -124,6 +161,12 @@ impl ChunkType {
             }
         };
         Ok((i, ty))
+    }
+}
+
+impl Display for SectionType {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
+        Debug::fmt(self, fmt)
     }
 }
 
@@ -160,6 +203,18 @@ fn parse_symbol(i: &[u8]) -> IResult<&[u8], Symbol> {
     ))
 }
 
+impl Display for Symbol {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        writeln!(
+            fmt,
+            "{INDENT}{} at {} - {} bytes",
+            self.ty, self.index, self.length
+        )?;
+        writeln!(fmt, "{INDENT}{INDENT}{:?}", self.name)?;
+        Ok(())
+    }
+}
+
 fn parse(bin: &[u8]) -> IResult<&[u8], RcxBin> {
     let read_u16 = nom::number::complete::u16(Endianness::Little);
     let read_u8 = nom::number::complete::u8;
@@ -179,11 +234,11 @@ fn parse(bin: &[u8]) -> IResult<&[u8], RcxBin> {
         RcxBin {
             signature: signature.try_into().unwrap_or([0; 4]),
             version,
-            chunk_count,
+            section_count: chunk_count,
             symbol_count,
             target_type,
             reserved,
-            chunks,
+            sections: chunks,
             symbols,
         },
     ))
@@ -208,12 +263,12 @@ mod test {
             RcxBin {
                 signature: *b"RCXI",
                 version: 0x0102,
-                chunk_count: 1,
+                section_count: 1,
                 symbol_count: 1,
                 target_type: 0,
                 reserved: 0,
-                chunks: vec![Chunk {
-                    ty: ChunkType::Task,
+                sections: vec![Section {
+                    ty: SectionType::Task,
                     number: 0,
                     length: 20,
                     data: vec![
