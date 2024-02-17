@@ -1,0 +1,24 @@
+task main() {
+    SetPower(OUT_A, 50);
+    set_fwd();
+    start loop_task;
+}
+
+task loop_task() {
+    int power = 50;
+    int delta = 5;
+    for(;;) {
+        SetPower(OUT_A, power);
+        power += delta;
+        if (power >= 90) {
+            delta = -2;
+        } else if (power <= 10) {
+            delta = 2;
+        }
+        Wait(100);
+    }
+}
+
+sub set_fwd() {
+    OnFwd(OUT_A);
+}

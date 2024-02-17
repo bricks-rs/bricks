@@ -26,12 +26,42 @@ use color_eyre::eyre::eyre;
 use nom::{number::Endianness, IResult};
 use std::{
     ffi::CString,
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter, Write},
 };
 
 const RCX_TAG: &str = "RCXI";
 const MAX_SECTIONS: usize = 10;
 const INDENT: &str = "  ";
+const HEXDUMP_WRAP_BYTES: usize = 16;
+
+fn print_hex_with_marker_at(bin: &[u8], pos: usize) -> String {
+    let mut out = String::new();
+
+    // header
+    write!(&mut out, "     ").unwrap();
+    for n in 0..16 {
+        write!(&mut out, " {n:2x}").unwrap();
+    }
+    writeln!(&mut out).unwrap();
+
+    // hexdump
+    for (idx, chunk) in bin.chunks(HEXDUMP_WRAP_BYTES).enumerate() {
+        write!(&mut out, "0x{:02x}:", idx * HEXDUMP_WRAP_BYTES,).unwrap();
+        for byte in chunk {
+            write!(&mut out, " {byte:02x}").unwrap();
+        }
+        writeln!(&mut out).unwrap();
+        if (idx * HEXDUMP_WRAP_BYTES..(idx + 1) * HEXDUMP_WRAP_BYTES)
+            .contains(&pos)
+        {
+            // indent the marker appropriately
+            out += "     "; // indent past the offset display
+            out.extend(std::iter::repeat("   ").take(pos % HEXDUMP_WRAP_BYTES));
+            writeln!(&mut out, "^<<").unwrap();
+        }
+    }
+    out
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RcxBin {
@@ -47,14 +77,28 @@ pub struct RcxBin {
 
 impl RcxBin {
     pub fn parse(bin: &[u8]) -> Result<Self> {
-        let (_i, bin) = parse(bin).map_err(|e| eyre!("Parse error: {e}"))?;
+        let (_i, bin) = parse(bin).map_err(|err| {
+            let input = match &err {
+                nom::Err::Error(err) => err.input,
+                nom::Err::Failure(err) => err.input,
+                nom::Err::Incomplete(needed) => {
+                    return eyre!("Incomplete input, needed {needed:?}");
+                }
+            };
+            let pos = bin.len() - input.len();
+            println!("{}", print_hex_with_marker_at(bin, pos));
+            eyre!("Parse error: {err}")
+        })?;
         bin.verify()?;
         Ok(bin)
     }
 
     pub fn verify(&self) -> Result<()> {
         fn repeated_idx(sections: &[Section]) -> bool {
-            let mut c = sections.iter().map(|c| c.number).collect::<Vec<_>>();
+            let mut c = sections
+                .iter()
+                .map(|c| (c.ty as u8, c.number))
+                .collect::<Vec<_>>();
             c.sort_unstable();
             c.dedup();
             c.len() != sections.len()
@@ -98,6 +142,40 @@ impl Display for RcxBin {
         Ok(())
     }
 }
+
+fn parse(bin: &[u8]) -> IResult<&[u8], RcxBin> {
+    println!("Input len: {}", bin.len());
+    let read_u16 = nom::number::complete::u16(Endianness::Little);
+    let read_u8 = nom::number::complete::u8;
+
+    let (i, signature) = nom::bytes::complete::tag(RCX_TAG)(bin)?;
+    let (i, version) = read_u16(i)?;
+    let (i, section_count) = read_u16(i)?;
+    let (i, symbol_count) = read_u16(i)?;
+    let (i, target_type) = read_u8(i)?;
+    let (i, reserved) = read_u8(i)?;
+
+    println!("Parse {section_count} sections");
+    let (i, sections) =
+        nom::multi::count(parse_section, section_count.into())(i)?;
+    println!("Parse {symbol_count} symbols");
+    let (i, symbols) = nom::multi::count(parse_symbol, symbol_count.into())(i)?;
+
+    IResult::Ok((
+        i,
+        RcxBin {
+            signature: signature.try_into().unwrap_or([0; 4]),
+            version,
+            section_count,
+            symbol_count,
+            target_type,
+            reserved,
+            sections,
+            symbols,
+        },
+    ))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Section {
     pub ty: SectionType,
@@ -106,14 +184,24 @@ pub struct Section {
     pub data: Vec<u8>,
 }
 
-fn parse_chunk(i: &[u8]) -> IResult<&[u8], Section> {
+fn parse_section(i: &[u8]) -> IResult<&[u8], Section> {
+    let neg_offset = i.len();
     let read_u16 = nom::number::complete::u16(Endianness::Little);
     let read_u8 = nom::number::complete::u8;
 
     let (i, ty) = SectionType::parse(i)?;
+    println!("- section type {ty} - offset from back: {neg_offset}");
     let (i, number) = read_u8(i)?;
+    println!("  number {number}");
+    println!("  length raw: {:02x}{:02x}", i[1], i[0]);
     let (i, length) = read_u16(i)?;
+    println!("  length {length}");
     let (i, data) = nom::bytes::complete::take(length)(i)?;
+    println!("  data len {}", data.len());
+    println!("  data: {data:02x?}");
+
+    // read padding bytes
+    let (i, _pad) = nom::bytes::complete::take((4 - (length % 4)) & 3)(i)?;
 
     Ok((
         i,
@@ -138,7 +226,7 @@ impl Display for Section {
 #[repr(u8)]
 pub enum SectionType {
     Task = 0,
-    SubChunk,
+    Subroutine,
     Sound,
     Animation,
     Count,
@@ -149,7 +237,7 @@ impl SectionType {
         let (i, ty) = nom::number::complete::u8(i)?;
         let ty = match ty {
             0 => Self::Task,
-            1 => Self::SubChunk,
+            1 => Self::Subroutine,
             2 => Self::Sound,
             3 => Self::Animation,
             4 => Self::Count,
@@ -183,6 +271,7 @@ fn parse_symbol(i: &[u8]) -> IResult<&[u8], Symbol> {
     let read_u8 = nom::number::complete::u8;
 
     let (i, ty) = read_u8(i)?;
+    println!("Symbol type {ty}");
     let (i, index) = read_u8(i)?;
     let (i, length) = read_u16(i)?;
     let (i, name) = nom::bytes::complete::take(length)(i)?;
@@ -214,36 +303,6 @@ impl Display for Symbol {
         Ok(())
     }
 }
-
-fn parse(bin: &[u8]) -> IResult<&[u8], RcxBin> {
-    let read_u16 = nom::number::complete::u16(Endianness::Little);
-    let read_u8 = nom::number::complete::u8;
-
-    let (i, signature) = nom::bytes::complete::tag(RCX_TAG)(bin)?;
-    let (i, version) = read_u16(i)?;
-    let (i, chunk_count) = read_u16(i)?;
-    let (i, symbol_count) = read_u16(i)?;
-    let (i, target_type) = read_u8(i)?;
-    let (i, reserved) = read_u8(i)?;
-
-    let (i, chunks) = nom::multi::count(parse_chunk, chunk_count.into())(i)?;
-    let (i, symbols) = nom::multi::count(parse_symbol, symbol_count.into())(i)?;
-
-    IResult::Ok((
-        i,
-        RcxBin {
-            signature: signature.try_into().unwrap_or([0; 4]),
-            version,
-            section_count: chunk_count,
-            symbol_count,
-            target_type,
-            reserved,
-            sections: chunks,
-            symbols,
-        },
-    ))
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -254,6 +313,50 @@ mod test {
         140013070207e18713010232e1812181 \
         430264002141000005006d61696e00"
     );
+
+    const COMPLEX: &[u8] = &hex!(
+        "52435849020103000500000001000400e181218100000e0013070207e187
+    130102321700710100000001330014000232001401020500130100002400
+    00010085420059000008140102feff270d8502000b000006140102020043
+    02640027a800010008007365745f66776400000005006d61696e0000010a
+    006c6f6f705f7461736b0002000600706f776572000201060064656c7461
+    00"
+    );
+
+    #[test]
+    fn err_msg() {
+        let out = print_hex_with_marker_at(COMPLEX, 5);
+        let expected = "       0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+0x00: 52 43 58 49 02 01 03 00 05 00 00 00 01 00 04 00
+                    ^<<
+0x10: e1 81 21 81 00 00 0e 00 13 07 02 07 e1 87 13 01
+0x20: 02 32 17 00 71 01 00 00 00 01 33 00 14 00 02 32
+0x30: 00 14 01 02 05 00 13 01 00 00 24 00 00 01 00 85
+0x40: 42 00 59 00 00 08 14 01 02 fe ff 27 0d 85 02 00
+0x50: 0b 00 00 06 14 01 02 02 00 43 02 64 00 27 a8 00
+0x60: 01 00 08 00 73 65 74 5f 66 77 64 00 00 00 05 00
+0x70: 6d 61 69 6e 00 00 01 0a 00 6c 6f 6f 70 5f 74 61
+0x80: 73 6b 00 02 00 06 00 70 6f 77 65 72 00 02 01 06
+0x90: 00 64 65 6c 74 61 00
+";
+        assert_eq!(out, expected);
+
+        let out = print_hex_with_marker_at(COMPLEX, 35);
+        let expected = "       0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+0x00: 52 43 58 49 02 01 03 00 05 00 00 00 01 00 04 00
+0x10: e1 81 21 81 00 00 0e 00 13 07 02 07 e1 87 13 01
+0x20: 02 32 17 00 71 01 00 00 00 01 33 00 14 00 02 32
+              ^<<
+0x30: 00 14 01 02 05 00 13 01 00 00 24 00 00 01 00 85
+0x40: 42 00 59 00 00 08 14 01 02 fe ff 27 0d 85 02 00
+0x50: 0b 00 00 06 14 01 02 02 00 43 02 64 00 27 a8 00
+0x60: 01 00 08 00 73 65 74 5f 66 77 64 00 00 00 05 00
+0x70: 6d 61 69 6e 00 00 01 0a 00 6c 6f 6f 70 5f 74 61
+0x80: 73 6b 00 02 00 06 00 70 6f 77 65 72 00 02 01 06
+0x90: 00 64 65 6c 74 61 00
+";
+        assert_eq!(out, expected);
+    }
 
     #[test]
     fn parse_sample() {
@@ -283,6 +386,81 @@ mod test {
                     length: 5,
                     name: CString::new("main").unwrap(),
                 }],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_complex() {
+        let bin = RcxBin::parse(COMPLEX).unwrap();
+        assert_eq!(
+            bin,
+            RcxBin {
+                signature: *b"RCXI",
+                version: 0x0102,
+                section_count: 3,
+                symbol_count: 5,
+                target_type: 0,
+                reserved: 0,
+                sections: vec![
+                    Section {
+                        ty: SectionType::Subroutine,
+                        number: 0,
+                        length: 4,
+                        data: vec![225, 129, 33, 129]
+                    },
+                    Section {
+                        ty: SectionType::Task,
+                        number: 0,
+                        length: 14,
+                        data: vec![
+                            19, 7, 2, 7, 225, 135, 19, 1, 2, 50, 23, 0, 113, 1
+                        ]
+                    },
+                    Section {
+                        ty: SectionType::Task,
+                        number: 1,
+                        length: 51,
+                        data: vec![
+                            20, 0, 2, 50, 0, 20, 1, 2, 5, 0, 19, 1, 0, 0, 36,
+                            0, 0, 1, 0, 133, 66, 0, 89, 0, 0, 8, 20, 1, 2, 254,
+                            255, 39, 13, 133, 2, 0, 11, 0, 0, 6, 20, 1, 2, 2,
+                            0, 67, 2, 100, 0, 39, 168
+                        ]
+                    },
+                ],
+                symbols: vec![
+                    Symbol {
+                        ty: 1,
+                        index: 0,
+                        length: 8,
+                        name: CString::new("set_fwd").unwrap()
+                    },
+                    Symbol {
+                        ty: 0,
+                        index: 0,
+                        length: 5,
+                        name: CString::new("main").unwrap()
+                    },
+                    Symbol {
+                        ty: 0,
+                        index: 1,
+                        length: 10,
+                        name: CString::new("loop_task").unwrap()
+                    },
+                    Symbol {
+                        ty: 2,
+                        index: 0,
+                        length: 6,
+                        name: CString::new("power").unwrap()
+                    },
+                    Symbol {
+                        ty: 2,
+                        index: 1,
+                        length: 6,
+                        name: CString::new("delta").unwrap()
+                    }
+                ],
             }
         );
     }
