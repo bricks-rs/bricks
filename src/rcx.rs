@@ -7,9 +7,7 @@ use std::{
     process::Command,
 };
 
-mod binfmt;
-
-use binfmt::RcxBin;
+use rcx::binfmt::RcxBin;
 
 const MAX_PROGRAM_SLOT: u8 = 9;
 const DEVICE: &str = "/dev/usb/legousbtower0";
@@ -118,5 +116,14 @@ pub fn program(slot: u8, file: PathBuf) -> Result<()> {
     println!("Successfully downloaded {}", file.display());
     // Play the download successful sound
     rcx.play_sound(Sound::FastUpwardTones)?;
+    Ok(())
+}
+
+pub fn disasm(file: PathBuf) -> Result<()> {
+    // Read in the target binary
+    let bin = std::fs::read(&file)?;
+    let bin = RcxBin::parse(&bin)?;
+
+    println!("{}", rcx::disasm::print(&file, &bin));
     Ok(())
 }

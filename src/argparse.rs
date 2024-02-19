@@ -55,6 +55,11 @@ pub enum RcxMode {
         #[clap(help = "Program file")]
         file: PathBuf,
     },
+    #[command(about = "Disassemble an RCX binary")]
+    Disasm {
+        #[clap(help = "Program file")]
+        file: PathBuf,
+    },
 }
 
 pub fn parse_args() -> Result<Args> {

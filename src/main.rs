@@ -1,5 +1,8 @@
 use color_eyre::Result;
 
+#[macro_use]
+extern crate tracing;
+
 mod argparse;
 mod powered_up;
 mod rcx;
@@ -22,6 +25,7 @@ async fn main() -> Result<()> {
             RcxMode::Version => rcx::version(),
             RcxMode::Compile { file } => rcx::compile(file),
             RcxMode::Program { slot, file } => rcx::program(slot, file),
+            RcxMode::Disasm { file } => rcx::disasm(file),
         },
     }
 }
