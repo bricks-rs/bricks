@@ -1,7 +1,7 @@
 use color_eyre::Result;
 
-#[macro_use]
-extern crate tracing;
+// #[macro_use]
+// extern crate tracing;
 
 mod argparse;
 mod powered_up;

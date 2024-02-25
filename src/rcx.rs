@@ -103,7 +103,10 @@ pub fn program(slot: u8, file: PathBuf) -> Result<()> {
                 idx as i16 + 1
             };
             println!("Chunk {}, len {}", idx, data_chunk.len());
-            rcx.begin_task_chunk(section.number, data_chunk.len().try_into()?)?;
+            rcx.start_task_download(
+                section.number,
+                data_chunk.len().try_into()?,
+            )?;
             rcx.transfer_data(
                 idx,
                 data_chunk.len().try_into()?,

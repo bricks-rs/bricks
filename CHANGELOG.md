@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 * Control basic RCX functions
 * Compile NQC programs via `nqc` binary
+* Basic RCX bytecode disassembly
 
 ### Changed
 
